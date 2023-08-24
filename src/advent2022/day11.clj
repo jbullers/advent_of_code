@@ -1,11 +1,10 @@
-(ns advent2022.day11 
+(ns advent2022.day11
   (:require [clojure.string :as str]))
 
 (defn parse [line]
   (condp re-matches line
-    #"Monkey (\d):"
-    :>> (fn [[_ id]]
-          [:id (parse-long id)])
+    #"Monkey \d:"
+    [:inspected-count 0]
 
     #"\s*Starting items: (.+)"
     :>> (fn [[_ items]]
@@ -32,7 +31,7 @@
   (->> input
        str/split-lines
        (map parse)
-       (into {:inspected-count 0})))
+       (into {})))
 
 (def sample-input "Monkey 0:
   Starting items: 79, 98
@@ -62,24 +61,25 @@ Monkey 3:
     If true: throw to monkey 0
     If false: throw to monkey 1")
 
-(defn monkey-turn [worry-reducer monkeys {[op n] :op :keys [id items test true-monkey false-monkey]}]
-  (loop [[item & items] items
-         updated-monkeys monkeys]
-    (if item
-      (let [inspected-item (worry-reducer (op item (if (= :old n) item n)))
-            target-monkey (if (zero? (mod inspected-item test)) true-monkey false-monkey)]
-        (recur items (-> updated-monkeys
-                         (update-in [id :inspected-count] inc)
-                         (assoc-in [id :items] (vec items))
-                         (update-in [target-monkey :items] conj inspected-item))))
-      updated-monkeys)))
+(defn monkey-turn [worry-reducer monkeys idx]
+  (let [{[op n] :op :keys [items test true-monkey false-monkey]} (nth monkeys idx)
+        inspect-fn (fn [item] (worry-reducer (op item (if (= :old n) item n))))
+        test-fn (fn [item] (if (zero? (mod item test)) true-monkey false-monkey))]
+    (reduce (fn [updated-monkeys item]
+              (let [inspected-item (inspect-fn item)
+                    target-monkey (test-fn inspected-item)]
+                (-> updated-monkeys
+                    (update-in [idx :inspected-count] inc)
+                    (update-in [idx :items] rest)
+                    (update-in [target-monkey :items] conj inspected-item))))
+            monkeys
+            items)))
 
 (defn turn [{:keys [monkeys worry-reducer] :as state}]
-  (loop [idx 0
-         updated-monkeys monkeys]
-    (if-let [curr (get updated-monkeys idx)]
-      (recur (inc idx) (monkey-turn worry-reducer updated-monkeys curr))
-      (assoc state :monkeys updated-monkeys))))
+  (let [updated-monkeys (reduce (partial monkey-turn worry-reducer)
+                                monkeys
+                                (range (count monkeys)))]
+    (assoc state :monkeys updated-monkeys)))
 
 (defn monkey-business [turns state]
   (let [{:keys [monkeys]} (-> (iterate turn state) (nth turns))
@@ -96,8 +96,8 @@ Monkey 3:
 
 (let [monkeys (->> (str/split puzzle-input #"\n\n")
                    (mapv monkey))]
-     (monkey-business 20 {:monkeys monkeys
-                          :worry-reducer (fn [worry-level] (quot worry-level 3))}))
+  (monkey-business 20 {:monkeys monkeys
+                       :worry-reducer (fn [worry-level] (quot worry-level 3))}))
 ;; => 117640
 
 (let [monkeys (->> (str/split puzzle-input #"\n\n") (mapv monkey))
