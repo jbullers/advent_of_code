@@ -39,41 +39,41 @@ $ ls
 (defn fs-zipper [root]
   (z/zipper dir? :children (fn [n coll] (assoc n :children coll)) root))
 
-(defn insert-dir [loc [_ name]]
+(defn insert-dir [loc name]
   (z/append-child loc (dir name)))
 
-(defn insert-file [loc [_ size name]]
+(defn insert-file [loc name size]
   (z/append-child loc (file name size)))
 
 (defn dir-loc [name loc]
   (let [file (z/node loc)]
-    (when (and (dir? file) (-> file :name #{name}))
+    (when (and (dir? file) (= (:name file) name))
       loc)))
 
-(defn nav-to-dir [loc [_ name]]
-  (some (partial dir-loc name) (->> loc z/down (iterate z/right))))
+(defn nav-to-dir [loc name]
+  (some #(dir-loc name %) (->> loc z/down (iterate z/right))))
 
-(defn parse
+(defn parse-command
   [loc input]
   (condp re-find input
     #"\$ cd /" (fs-zipper (dir "/"))
     #"\$ ls" loc
-    #"dir (.+)" :>> (partial insert-dir loc)
-    #"(\d+) (.+)" :>> (partial insert-file loc)
+    #"dir (.+)" :>> (fn [[_ name]] (insert-dir loc name))
+    #"(\d+) (.+)" :>> (fn [[_ size name]] (insert-file loc name size))
     #"cd \.\." (z/up loc)
-    #"cd (.+)" :>> (partial nav-to-dir loc)))
+    #"cd (.+)" :>> (fn [[_ name]] (nav-to-dir loc name))))
 
-(defn total-size [file]
-  (if-let [children (:children file)]
-    (assoc file :size (apply + (map :size children)))
-    file))
-
-(defn calculate-dir-sizes [input]
+(defn parse [input]
   (->> input
        str/split-lines
-       (reduce parse nil)
-       z/root
-       (walk/postwalk total-size)))
+       (reduce parse-command nil)
+       z/root))
+
+(defn assoc-size [file]
+  (if-let [children (:children file)]
+    (let [dir-size (->> children (map :size) (apply +))]
+      (assoc file :size dir-size))
+    file))
 
 (defn size-of-smallest-dir-to-free [fs]
   (let [root (first fs)
@@ -88,7 +88,8 @@ $ ls
                  Long/MAX_VALUE))))
 
 (->> sample-input
-     calculate-dir-sizes
+     parse
+     (walk/postwalk assoc-size)
      (tree-seq dir? :children)
      (filter (every-pred dir? #(<= (:size %) 100000)))
      (map :size)
@@ -98,7 +99,8 @@ $ ls
 (def puzzle-input (slurp "resources/advent2022/day07.txt"))
 
 (->> puzzle-input
-     calculate-dir-sizes
+     parse
+     (walk/postwalk assoc-size)
      (tree-seq dir? :children)
      (filter (every-pred dir? #(<= (:size %) 100000)))
      (map :size)
@@ -108,14 +110,15 @@ $ ls
 
 ;;;; Part Two
 (->> sample-input
-     calculate-dir-sizes
+     parse
+     (walk/postwalk assoc-size)
      (tree-seq dir? :children)
      size-of-smallest-dir-to-free)
 ;; => 24933642
 
 (->> puzzle-input
-     calculate-dir-sizes
+     parse
+     (walk/postwalk assoc-size)
      (tree-seq dir? :children)
      size-of-smallest-dir-to-free)
 ;; => 1112963
-  
